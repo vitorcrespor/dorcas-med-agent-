@@ -2,7 +2,7 @@ from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, System
 from dotenv import load_dotenv
 import prompts as p
 import os
-import agent_tools as tools
+import agent_tools as to
 import schema 
 from langgraph.graph import StateGraph, START, END
 
@@ -14,7 +14,7 @@ DOC_PATH= os.getenv('LOG_PATH_MOD')
 def process(state: schema.AgentState) -> schema.AgentState:
     """The agent processes the messages and updates the state"""    
     system_prompt= SystemMessage(content=p.SYSTEM_ASSISTANT)
-    response= schema.llm.invoke([system_prompt]+state['messages'][-CONTEXT_SIZE:])
+    response= schema.rag_agent.invoke([system_prompt]+state['messages'][-CONTEXT_SIZE:])
     
     if hasattr(response, 'tool_calls') and response.tool_calls:
        print(f"TOOL CALLS: {[tc['name'] for tc in response.tool_calls]}")
@@ -37,11 +37,11 @@ def take_action(state: schema.AgentState) -> schema.AgentState:
     for tool_call in tool_calls:
         print(f"Processing tool call: {tool_call['name']} with args: {tool_call['args']}")
         
-        if not tool_call['name'] in tools.tools_dict:
+        if not tool_call['name'] in to.tools_dict:
             print(f"Tool {tool_call['name']} not found.")
             result= "Tool not found."
         else:
-            result= tools.tools_dict[tool_call['name']].invoke(tool_call['args'])
+            result= schema.tools_dict[tool_call['name']].invoke(tool_call['args'])
             print(f"Tool result: {result}, {len(tool_calls)} steps.")
             
             results.append(ToolMessage(tool_call_id= tool_call['id'], 
@@ -58,9 +58,9 @@ def running_agent():
     
     with open(LOG_PATH,'r') as file:
         for line in file:
-            if line.startswith("AI"):
+            if line.startswith("DORCAS"):
                 conversation_history.append(AIMessage(content= line[3:]))
-            if line.startswith("Human"):
+            if line.startswith("USER"):
                 conversation_history.append(HumanMessage(content= line[6:]))    
     while True:
         user_input= input("Enter: ")
@@ -70,10 +70,13 @@ def running_agent():
         #convo flow
         message= HumanMessage(content= user_input)
         conversation_history.append(message)
-        result= agent.invoke({'messages': conversation_history})
-        response= result['messages'][-1]
-        conversation_history.append(response)
-        
+        result = agent.invoke({
+            "messages": conversation_history})
+
+        conversation_history = result["messages"]
+        response = conversation_history[-1]
+        print(f"\nDORCAS: {response.content}")    
+            
         with open(LOG_PATH, "w") as file:
             file.write("conversation log\n")
             for message in conversation_history:

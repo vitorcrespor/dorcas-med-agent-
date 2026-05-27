@@ -1,13 +1,13 @@
 from langchain_core.tools import tool
+from rag.formatter import retrieve_context
 
 @tool
-def retriever(query: str) -> str:
-    """Retrieve relevant information from the document."""
-    docs= retriever.invoke(query)
-    if not docs:
-        return "No relevant information found."
-    
-    results= []
-    for i, doc in enumerate(docs):
-        results.append(f"Document {i+1}: {doc.page_content}")
-    return "\n\n".join(results)
+def retriever_tool(query: str) -> str:
+    """Retrieve relevant information from the document search from the RAG."""
+    return retrieve_context(query, k=5)
+
+"""@tool
+def fhir_qa
+
+@tool
+def fhir_extract_summary"""
