@@ -1,18 +1,17 @@
-from langchain_ollama import ChatOllama, OllamaEmbeddings
-from langchain_core.tools import tool
-import agent_tools as to
-from typing import TypedDict, Annotated, Sequence, Union
-from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, SystemMessage, ToolMessage
+from typing import TypedDict, Annotated, Sequence
+from langchain_core.messages import BaseMessage, ToolMessage
 from langgraph.graph.message import add_messages
-from langgraph.graph import StateGraph, START, END
+from langchain_ollama import ChatOllama
+import agent_tools
 
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
-    rag_query: str
-    rag_context: str
-
-tools= [to.retriever_tool]
-tools_dict= {tools.name: tool for tool in tools}
+    summary: str
+    action_memory: Sequence[ToolMessage]
+    
+tools_list= [agent_tools.retriever_tool]
+tools_dict= {tool.name: tool for tool in tools_list}
 lm= ChatOllama(model= 'llama3.2:3B', temperature= 0.3)
-rag_agent= lm.bind(tools)
+rag_agent= lm.bind_tools(tools_list)
+

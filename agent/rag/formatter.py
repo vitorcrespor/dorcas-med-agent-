@@ -1,4 +1,4 @@
-from engine import get_retriever
+from rag.engine import get_retriever
 
 def retrieve_context(query: str) -> str:
     retriever= get_retriever()

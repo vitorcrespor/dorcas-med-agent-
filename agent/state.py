@@ -5,6 +5,7 @@ import os
 import agent_tools as to
 import schema 
 from langgraph.graph import StateGraph, START, END
+from langgraph.prebuilt import ToolNode
 
 load_dotenv()
 CONTEXT_SIZE= int(os.getenv('CONTEXT_SIZE'))
@@ -12,19 +13,32 @@ LOG_PATH= os.getenv('LOG_PATH')
 DOC_PATH= os.getenv('LOG_PATH_MOD')
 
 def process(state: schema.AgentState) -> schema.AgentState:
-    """The agent processes the messages and updates the state"""    
-    system_prompt= SystemMessage(content=p.SYSTEM_ASSISTANT)
-    response= schema.rag_agent.invoke([system_prompt]+state['messages'][-CONTEXT_SIZE:])
-    
-    if hasattr(response, 'tool_calls') and response.tool_calls:
-       print(f"TOOL CALLS: {[tc['name'] for tc in response.tool_calls]}")
-       
+    """The agent processes the messages using recent messages + summary."""
+    recent_messages = state["messages"][-CONTEXT_SIZE:]
+    summary = state.get("summary", "")
+    system_prompt = SystemMessage(content=f"""{p.SYSTEM_PROMPT}
+                                    Conversation summary so far:
+                                    {summary if summary else "No previous summary yet."}
+                                    Use the summary as long-term context.
+                                    Use the recent messages as the immediate conversation context.
+                                    """)
+
+    response = schema.rag_agent.invoke([system_prompt] + recent_messages)
+
     print(f"\nDORCAS: {response.content}")
-    return {'messages': [response]}
+    new_summary = update_summary(
+        old_summary=summary,
+        recent_messages=recent_messages,
+        ai_response=response,)
+
+    return {"messages": [response],
+            "summary": new_summary,}
+
+
 
 def should_continue(state: schema.AgentState) -> str: # Returns a string path
     """Check if the last message contains any tool calls"""
-    last_message = state['messages'][-1]
+    last_message= state['messages'][-1]
     
     if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
         return 'continue'
@@ -47,6 +61,8 @@ def take_action(state: schema.AgentState) -> schema.AgentState:
             results.append(ToolMessage(tool_call_id= tool_call['id'], 
                                        name= tool_call['name'], 
                                        content= result))
+            
+    state['messages'].append(results)
     print("Completed tool calls.")
     return {'messages': results}
 
@@ -81,9 +97,9 @@ def running_agent():
             file.write("conversation log\n")
             for message in conversation_history:
                 if isinstance(message, HumanMessage):
-                    file.write(f"Human: {message.content}\n")
+                    file.write(f"USER: {message.content}\n")
                 elif isinstance(message, AIMessage):
-                    file.write(f"AI: {message.content}\n")
+                    file.write(f"DORCAS: {message.content}\n")
             file.write("log end\n")
             
     print("Conversation history saved to log.txt")
@@ -92,12 +108,13 @@ def running_agent():
 graph= StateGraph(schema.AgentState)
 graph.add_node("llm", process)
 graph.add_node("retriever", take_action)
+graph.add_node("tools", ToolNode(schema.tools_list))
 
 graph.add_edge(START, "llm")
 graph.add_conditional_edges('llm', should_continue,{
-    'continue': "retriever",
+    'continue': "tools",
     'end': END  
 })
-graph.add_edge("retriever", "llm")
+graph.add_edge("tools", "llm")
 
 agent= graph.compile()
