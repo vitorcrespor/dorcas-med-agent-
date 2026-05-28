@@ -37,7 +37,7 @@ def take_action(state: schema.AgentState) -> schema.AgentState:
     for tool_call in tool_calls:
         print(f"Processing tool call: {tool_call['name']} with args: {tool_call['args']}")
         
-        if not tool_call['name'] in to.tools_dict:
+        if not tool_call['name'] in schema.tools_dict:
             print(f"Tool {tool_call['name']} not found.")
             result= "Tool not found."
         else:

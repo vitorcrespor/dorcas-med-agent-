@@ -1,15 +1,16 @@
 from langchain_core.tools import tool
 from rag.formatter import retrieve_context
+from pubmed.formatter import pubmed_context
 
 @tool
 def retriever_tool(query: str) -> str:
     """Retrieve relevant information from the document search from the RAG from DB."""
-    return retrieve_context(query, k=5)
+    return retrieve_context(query)
 
 @tool 
 def pubmed(query: str) -> str:
     """Search PubMed for biomedical literature. Use for medical, clinical, biology, and scientific evidence questions."""
-    
+    return pubmed_context(query)
     
 """@tool
 def fhir_qa
