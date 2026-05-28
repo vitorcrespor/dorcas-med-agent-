@@ -6,11 +6,13 @@ import agent_tools as to
 import schema 
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
+import support.functions as f
 
 load_dotenv()
 CONTEXT_SIZE= int(os.getenv('CONTEXT_SIZE'))
 LOG_PATH= os.getenv('LOG_PATH')
 DOC_PATH= os.getenv('LOG_PATH_MOD')
+TOOL_LOG_PATH= os.getenv('TOOL_LOG_PATH')
 
 def process(state: schema.AgentState) -> schema.AgentState:
     """The agent processes the messages using recent messages + summary."""
@@ -26,7 +28,7 @@ def process(state: schema.AgentState) -> schema.AgentState:
     response = schema.rag_agent.invoke([system_prompt] + recent_messages)
 
     print(f"\nDORCAS: {response.content}")
-    new_summary = update_summary(
+    new_summary = f.update_summary(
         old_summary=summary,
         recent_messages=recent_messages,
         ai_response=response,)
@@ -50,6 +52,7 @@ def take_action(state: schema.AgentState) -> schema.AgentState:
     results= []
     for tool_call in tool_calls:
         print(f"Processing tool call: {tool_call['name']} with args: {tool_call['args']}")
+        state['action_memory'].append(ToolMessage(tool_call))
         
         if not tool_call['name'] in to.tools_dict:
             print(f"Tool {tool_call['name']} not found.")
@@ -87,28 +90,21 @@ def running_agent():
         message= HumanMessage(content= user_input)
         conversation_history.append(message)
         result = agent.invoke({
-            "messages": conversation_history})
+            "messages": conversation_history,
+            "action_memory": tool_history})
 
         conversation_history = result["messages"]
+        tool_history = result.get("action_memory", [])
         response = conversation_history[-1]
-        print(f"\nDORCAS: {response.content}")    
-            
-        with open(LOG_PATH, "w") as file:
-            file.write("conversation log\n")
-            for message in conversation_history:
-                if isinstance(message, HumanMessage):
-                    file.write(f"USER: {message.content}\n")
-                elif isinstance(message, AIMessage):
-                    file.write(f"DORCAS: {message.content}\n")
-            file.write("log end\n")
-            
+        print(f"\nDORCAS: {response.content}")  
+          
+        f.log(tool_history, conversation_history)
     print("Conversation history saved to log.txt")
     
 #graph
 graph= StateGraph(schema.AgentState)
 graph.add_node("llm", process)
-graph.add_node("retriever", take_action)
-graph.add_node("tools", ToolNode(schema.tools_list))
+graph.add_node("tools", take_action)
 
 graph.add_edge(START, "llm")
 graph.add_conditional_edges('llm', should_continue,{
