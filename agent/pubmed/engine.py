@@ -3,13 +3,13 @@ from dataclasses import dataclass
 from typing import Any
 import os
 import time
-import requests
+import httpx
 import xml.etree.ElementTree as ET
 from dotenv import load_dotenv
 import asyncio
 
 load_dotenv()
-URL_BASE= os.getenv("NCBI_URL")
+URL_BASE = os.getenv("NCBI_URL", "https://eutils.ncbi.nlm.nih.gov/entrez/eutils").rstrip("/")
 
 
 @dataclass
@@ -43,11 +43,12 @@ async def search_pubmed_pmids(query: str, max_results: int = 5) -> list[str]:
                 "retmax": str(max_results),
                 "sort": "relevance"}
 
-    response= requests.get(url, params=params, timeout=30)
-    response.raise_for_status()
-    await asyncio.sleep(0.12)
+    async with httpx.AsyncClient(timeout=30) as client:
+        response= await client.get(url, params=params)
+        response.raise_for_status()
 
-    data= response.json()
+    await asyncio.sleep(0.12)
+    data = response.json()
     return data["esearchresult"].get("idlist", [])
 
 
@@ -60,16 +61,16 @@ async def fetch_pubmed_articles(pmids: list[str]) -> list[PubMedArticle]:
         "db": "pubmed",
         "id": ",".join(pmids),
         "retmode": "xml",}
-    response= requests.get(url, params=params, timeout=30)
-    response.raise_for_status()
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.get(url, params=params)
+        response.raise_for_status()
+
     await asyncio.sleep(0.12)
-
     return _parse_pubmed_xml(response.text)
-
 
 async def search_pubmed_articles(query: str, max_results: int = 5) -> list[PubMedArticle]:
     pmids= await search_pubmed_pmids(query=query, max_results=max_results)
-    return fetch_pubmed_articles(pmids)
+    return await fetch_pubmed_articles(pmids)
 
 
 def _safe_text(element) -> str:

@@ -14,11 +14,11 @@ LOG_PATH= os.getenv('LOG_PATH')
 DOC_PATH= os.getenv('LOG_PATH_MOD')
 TOOL_LOG_PATH= os.getenv('TOOL_LOG_PATH')
 
-def process(state: schema.AgentState) -> schema.AgentState:
+async def process(state: schema.AgentState) -> schema.AgentState:
     """The agent processes the messages using recent messages."""
     recent_messages= state["messages"][-CONTEXT_SIZE:]
     system_prompt= SystemMessage(content= p.SYSTEM_PROMPT)
-    response= schema.rag_agent.invoke([system_prompt] + recent_messages)
+    response= await schema.rag_agent.ainvoke([system_prompt] + recent_messages)
 
     print(f"\nDORCAS: {response.content}")
     return {"messages": [response]}
@@ -30,7 +30,7 @@ def should_continue(state: schema.AgentState) -> str: # Returns a string path
         return 'continue'
     return 'end'
    
-def take_action(state: schema.AgentState) -> schema.AgentState:
+async def take_action(state: schema.AgentState) -> schema.AgentState:
     """The agent takes action based on the tool calls"""
     tool_calls= state['messages'][-1].tool_calls
     results= []
@@ -41,17 +41,18 @@ def take_action(state: schema.AgentState) -> schema.AgentState:
             print(f"Tool {tool_call['name']} not found.")
             result= "Tool not found."
         else:
-            result= schema.tools_dict[tool_call['name']].invoke(tool_call['args'])
-            print(f"Tool result: {result}, {len(tool_calls)} steps.")
+            try:
+                result = await schema.tools_dict[tool_call['name']].ainvoke(tool_call['args'])
+            except Exception as e:
+                result = f"Tool error: {type(e).__name__}: {e}"            print(f"Tool result: {result}, {len(tool_calls)} steps.")
             results.append(ToolMessage(tool_call_id= tool_call['id'], 
                                        name= tool_call['name'], 
                                        content= result))
             
-    state['messages'].append(results)
     print("Completed tool calls.")
     return {'messages': results}
 
-def running_agent():
+async def running_agent():
     print("\n INITIALIZING DORCAS")
     if LOG_PATH is None:
         raise ValueError("LOG_PATH is not defined in .env")
@@ -66,12 +67,12 @@ def running_agent():
         #convo flow
         message= HumanMessage(content= user_input)
         conversation_history.append(message)
-        result = agent.invoke({
+        result= await agent.ainvoke({
             "messages": conversation_history})
 
         conversation_history = result["messages"]
         response = conversation_history[-1]
-        print(f"\nDORCAS: {response.content}")  
+        print(f"\nDORCAS: {response.content.text}")  
           
         f.log(conversation_history)
     print("Conversation history saved to log.txt")

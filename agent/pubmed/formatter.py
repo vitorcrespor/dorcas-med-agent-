@@ -9,14 +9,14 @@ load_dotenv()
 EMBED_MODEL_NAME = os.getenv("EMBED_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
 
 #----------------->>>>>add full paper reader<<<<<---------------
-def pubmed_context(query: str, max_results: int = 20, k: int = 5) -> str:
+async def pubmed_context(query: str, max_results: int = 20, k: int = 5) -> str:
     """
     Search PubMed, fetch candidate articles, index their abstracts temporarily,
     and retrieve the most relevant chunks.
 
     PubMed supplies the PMIDs. The agent does not guess them.
     """
-    articles= pub.search_pubmed_articles(query=query,
+    articles= await pub.search_pubmed_articles(query=query,
                                     max_results=max_results)
     if not articles:
         return "No relevant PubMed articles found."

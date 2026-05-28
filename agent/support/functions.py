@@ -1,5 +1,5 @@
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage, BaseMessage
-import schema, state
+import schema
 from dotenv import load_dotenv
 import os
 
@@ -37,7 +37,7 @@ def message_to_text(message) -> str:
         role= "DORCAS"
         if getattr(message, "tool_calls", None):
             tool_names= [tc["name"] for tc in message.tool_calls]
-            tool_queries= [tc["query"] for tc in message.tool_calls]
+            tool_queries = [tc.get("args", {}) for tc in message.tool_calls]
             content= f"Requested tool calls: {tool_names} | {tool_queries}"
 
     elif isinstance(message, ToolMessage):
@@ -106,7 +106,7 @@ def log_ingestion(conversation_history= []) -> list[BaseMessage]:
     with open(LOG_PATH,'r') as file:
         for line in file:
             if line.startswith("DORCAS"):
-                conversation_history.append(AIMessage(content= line[3:]))
+                conversation_history.append(AIMessage(content=line.removeprefix("DORCAS:").strip()))
             if line.startswith("USER"):
-                conversation_history.append(HumanMessage(content= line[6:]))   
+                conversation_history.append(AIMessage(content=line.removeprefix("DORCAS:").strip()))
     return conversation_history

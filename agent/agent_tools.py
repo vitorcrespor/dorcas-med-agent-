@@ -8,9 +8,9 @@ def retriever_tool(query: str) -> str:
     return retrieve_context(query)
 
 @tool 
-def pubmed(query: str) -> str:
+async def pubmed_tool(query: str) -> str:
     """Search PubMed for biomedical literature. Use for medical, clinical, biology, and scientific evidence questions."""
-    return pubmed_context(query)
+    return await pubmed_context(query)
     
 """@tool
 def fhir_qa
