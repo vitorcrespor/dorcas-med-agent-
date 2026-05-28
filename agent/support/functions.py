@@ -1,4 +1,4 @@
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage, BaseMessage
 import schema, state
 from dotenv import load_dotenv
 import os
@@ -9,14 +9,15 @@ TOOL_LOG_PATH= os.getenv('TOOL_LOG_PATH')
 SUMMARY_KEEP_MESSAGES = 6
 SUMMARY_TRIGGER_MESSAGES = 10
 
-def log(tool_history: list[ToolMessage]= [], conversation_history: list[HumanMessage]= []):
-    with open(TOOL_LOG_PATH, "w") as file:
+def log(conversation_history: list[BaseMessage]= []):
+    """   with open(TOOL_LOG_PATH, "w") as file:
         file.write("tool log\n")
         for message in tool_history:
             file.write(f"Tool: {message.name}\n")
             file.write(f"Tool call id: {message.tool_call_id}\n")
             file.write(f"Result: {message.content}\n\n")
-        file.write("log end\n")
+        file.write("log end\n")"""
+        
     with open(LOG_PATH, "w") as file:
         file.write("conversation log\n")
         for message in conversation_history:
@@ -35,7 +36,7 @@ def message_to_text(message) -> str:
     elif isinstance(message, AIMessage):
         role= "DORCAS"
         if getattr(message, "tool_calls", None):
-            tool_names= [tc["name"] tc["query"] for tc in message.tool_calls]
+            tool_names= [tc["name"] for tc in message.tool_calls]
             tool_queries= [tc["query"] for tc in message.tool_calls]
             content= f"Requested tool calls: {tool_names} | {tool_queries}"
 
@@ -98,5 +99,14 @@ def update_summary(state: schema.AgentState) -> schema.AgentState:
                             """)
 
     response= schema.lm.invoke([system_prompt,human_prompt])
-
     return {"summary": response.content.strip()}
+
+
+def log_ingestion(conversation_history= []) -> list[BaseMessage]:
+    with open(LOG_PATH,'r') as file:
+        for line in file:
+            if line.startswith("DORCAS"):
+                conversation_history.append(AIMessage(content= line[3:]))
+            if line.startswith("USER"):
+                conversation_history.append(HumanMessage(content= line[6:]))   
+    return conversation_history
