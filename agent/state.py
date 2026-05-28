@@ -20,7 +20,7 @@ async def process(state: schema.AgentState) -> schema.AgentState:
     system_prompt= SystemMessage(content= p.SYSTEM_PROMPT)
     response= await schema.rag_agent.ainvoke([system_prompt] + recent_messages)
 
-    print(f"\nDORCAS: {response.content}")
+    print(f"\nDORCAS: {f.content_to_text(response.content)}")
     return {"messages": [response]}
 
 def should_continue(state: schema.AgentState) -> str: # Returns a string path
@@ -44,7 +44,9 @@ async def take_action(state: schema.AgentState) -> schema.AgentState:
             try:
                 result = await schema.tools_dict[tool_call['name']].ainvoke(tool_call['args'])
             except Exception as e:
-                result = f"Tool error: {type(e).__name__}: {e}"            print(f"Tool result: {result}, {len(tool_calls)} steps.")
+                result = f"Tool error: {type(e).__name__}: {e}"     
+                       
+            #print(f"Tool result: {result}, {len(tool_calls)} steps.")
             results.append(ToolMessage(tool_call_id= tool_call['id'], 
                                        name= tool_call['name'], 
                                        content= result))
@@ -60,7 +62,7 @@ async def running_agent():
     conversation_history= f.log_ingestion()
     
     while True:
-        user_input= input("Enter: ")
+        user_input= input("USER: ")
         if user_input.lower() == 'exit':
             break
         
@@ -72,7 +74,6 @@ async def running_agent():
 
         conversation_history = result["messages"]
         response = conversation_history[-1]
-        print(f"\nDORCAS: {response.content.text}")  
           
         f.log(conversation_history)
     print("Conversation history saved to log.txt")

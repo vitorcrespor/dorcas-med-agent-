@@ -110,3 +110,16 @@ def log_ingestion(conversation_history= []) -> list[BaseMessage]:
             if line.startswith("USER"):
                 conversation_history.append(AIMessage(content=line.removeprefix("DORCAS:").strip()))
     return conversation_history
+
+def content_to_text(content) -> str:
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        return "\n".join(
+            item.get("text", "")
+            for item in content
+            if isinstance(item, dict) and item.get("type") == "text"
+        ).strip()
+
+    return str(content)
