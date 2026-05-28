@@ -35,7 +35,7 @@ def message_to_text(message) -> str:
     elif isinstance(message, AIMessage):
         role= "DORCAS"
         if getattr(message, "tool_calls", None):
-            tool_names= [tc["name"] tc["query"] for tc in message.tool_calls]
+            tool_names= [tc["name"] for tc in message.tool_calls]
             tool_queries= [tc["query"] for tc in message.tool_calls]
             content= f"Requested tool calls: {tool_names} | {tool_queries}"
 
