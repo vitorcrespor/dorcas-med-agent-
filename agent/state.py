@@ -70,6 +70,7 @@ def take_action(state: schema.AgentState) -> schema.AgentState:
     return {'messages': results}
 
 def running_agent():
+    
     print("\n INITIALIZING DORCAS")
     conversation_history= []
     if LOG_PATH is None:
