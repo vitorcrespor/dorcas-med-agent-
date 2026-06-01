@@ -1,113 +1,175 @@
 # rag/pubmed.py
-from dataclasses import dataclass
-from typing import Any
-import os
-import time
-import httpx
-import xml.etree.ElementTree as ET
 from dotenv import load_dotenv
-import asyncio
+import os
+
+import chromadb
+from llama_index.core import (
+    Document,
+    VectorStoreIndex,
+    SimpleDirectoryReader,
+    StorageContext,
+    Settings,
+)
+from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.ingestion import IngestionPipeline
+from llama_index.core.extractors import (
+    TitleExtractor,
+    QuestionsAnsweredExtractor,
+)
+from llama_index.vector_stores.chroma import ChromaVectorStore
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.llms.ollama import Ollama
+
 
 load_dotenv()
-URL_BASE = os.getenv("NCBI_URL", "https://eutils.ncbi.nlm.nih.gov/entrez/eutils").rstrip("/")
+
+DB_PATH = os.getenv("DB_PATH")
+EMBED_MODEL_NAME = os.getenv(
+    "EMBED_MODEL_NAME",
+    "sentence-transformers/all-MiniLM-L6-v2",
+)
+
+_retriever = None
+_embed_model = None
 
 
-@dataclass
-class PubMedArticle:
-    pmid: str
-    title: str
-    abstract: str
-    journal: str | None= None
-    year: str | None= None
-    metadata: dict[str, Any] | None= None
+def get_embed_model() -> HuggingFaceEmbedding:
+    """Load the embedding model once and reuse it."""
+    global _embed_model
+
+    if _embed_model is None:
+        _embed_model = HuggingFaceEmbedding(
+            model_name=EMBED_MODEL_NAME
+        )
+
+    return _embed_model
 
 
-def _base_params() -> dict[str, str]:
-    email= os.getenv("NCBI_EMAIL")
-    tool= os.getenv("NCBI_TOOL", "dorcas_agent")
-    api_key= os.getenv("NCBI_API_KEY", "")
-    if not email:
-        raise ValueError("NCBI_EMAIL is not defined in .env")
+def retrieve_from_documents(
+    query: str,
+    documents: list[Document],
+    k: int = 5,
+):
+    """
+    Build a temporary in-memory index and retrieve relevant chunks.
 
-    params = {"tool": tool, 
-              "email": email}
-    if api_key: params["api_key"] = api_key
-    return params
+    Useful for short-lived sources such as PubMed/PMC articles.
+    It does not modify the persistent local-document Chroma database.
+    """
+    splitter = SentenceSplitter(
+        separator=" ",
+        chunk_size=700,
+        chunk_overlap=100,
+    )
 
-async def search_pubmed_pmids(query: str, max_results: int = 5) -> list[str]:
-    url= URL_BASE + "/esearch.fcgi"
-    params = {**_base_params(),
-                "db": "pubmed",
-                "term": query,
-                "retmode": "json",
-                "retmax": str(max_results),
-                "sort": "relevance"}
+    chunks = splitter.get_nodes_from_documents(documents)
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        response= await client.get(url, params=params)
-        response.raise_for_status()
-
-    await asyncio.sleep(0.12)
-    data = response.json()
-    return data["esearchresult"].get("idlist", [])
-
-
-async def fetch_pubmed_articles(pmids: list[str]) -> list[PubMedArticle]:
-    if not pmids:
+    if not chunks:
         return []
-    
-    url= URL_BASE + "/efetch.fcgi"
-    params= {**_base_params(),
-        "db": "pubmed",
-        "id": ",".join(pmids),
-        "retmode": "xml",}
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.get(url, params=params)
-        response.raise_for_status()
 
-    await asyncio.sleep(0.12)
-    return _parse_pubmed_xml(response.text)
+    index = VectorStoreIndex(
+        chunks,
+        embed_model=get_embed_model(),
+    )
 
-async def search_pubmed_articles(query: str, max_results: int = 5) -> list[PubMedArticle]:
-    pmids= await search_pubmed_pmids(query=query, max_results=max_results)
-    return await fetch_pubmed_articles(pmids)
+    retriever = index.as_retriever(
+        similarity_top_k=k
+    )
+
+    return retriever.retrieve(query)
 
 
-def _safe_text(element) -> str:
-    if element is None:
-        return ""
-    return "".join(element.itertext()).strip()
+def get_retriever():
+    """
+    Return the persistent retriever for local uploaded documents.
+    Build it once per process, then reuse it.
+    """
+    global _retriever
 
+    if _retriever is not None:
+        return _retriever
 
-def _parse_pubmed_xml(xml_text: str) -> list[PubMedArticle]:
-    root= ET.fromstring(xml_text)
-    articles: list[PubMedArticle]= []
+    if DB_PATH is None:
+        raise ValueError("DB_PATH is not defined in .env")
 
-    for item in root.findall(".//PubmedArticle"):
-        pmid= item.findtext(".//PMID") or ""
-        title_element= item.find(".//ArticleTitle")
-        title= _safe_text(title_element)
+    llm = Ollama(
+        model="llama3.2:3b"
+    )
 
-        abstract_parts= [_safe_text(abstract_text)
-                        for abstract_text in item.findall(".//AbstractText")]
-        abstract= "\n".join(part for part in abstract_parts if part)
-        journal= item.findtext(".//Journal/Title")
-        year= (item.findtext(".//PubDate/Year")
-            or item.findtext(".//PubDate/MedlineDate"))
+    embed_model = get_embed_model()
 
-        if not abstract:
-            continue
+    documents = SimpleDirectoryReader(
+        input_dir=DB_PATH
+    ).load_data()
 
-        metadata = {"source": "pubmed",
-                    "pmid": pmid,
-                    "title": title,
-                    "journal": journal,
-                    "year": year,}
+    chroma_client = chromadb.PersistentClient(
+        path="./chroma.db"
+    )
 
-        articles.append(PubMedArticle(pmid=pmid,
-                                    title=title,
-                                    abstract=abstract,
-                                    journal=journal,
-                                    year=year,
-                                    metadata=metadata))
-    return articles
+    vector_store = ChromaVectorStore(
+        chroma_client=chroma_client,
+        collection_name="dorcas_db",
+    )
+
+    storage_context = StorageContext.from_defaults(
+        vector_store=vector_store
+    )
+
+    Settings.embed_model = embed_model
+    Settings.llm = llm
+
+    for document in documents:
+        document.text_template = (
+            "metadata:\n"
+            "{metadata}\n"
+            "----\n"
+            "content:\n"
+            "{content}"
+        )
+
+        if "page_label" in document.excluded_metadata_keys:
+            document.excluded_embed_metadata_keys.append(
+                "page_label"
+            )
+
+    text_splitter = SentenceSplitter(
+        separator=" ",
+        chunk_size=1024,
+        chunk_overlap=128,
+    )
+
+    title_extractor = TitleExtractor(
+        llm=llm,
+        nodes=5,
+    )
+
+    qa_extractor = QuestionsAnsweredExtractor(
+        llm=llm,
+        questions=3,
+    )
+
+    pipeline = IngestionPipeline(
+        transformations=[
+            text_splitter,
+            title_extractor,
+            qa_extractor,
+        ]
+    )
+
+    nodes = pipeline.run(
+        documents=documents,
+        in_place=True,
+        show_progress=True,
+    )
+
+    index = VectorStoreIndex(
+        nodes,
+        storage_context=storage_context,
+        embed_model=embed_model,
+    )
+
+    _retriever = index.as_retriever(
+        similarity_top_k=5
+    )
+
+    return _retriever

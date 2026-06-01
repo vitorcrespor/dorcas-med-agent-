@@ -1,15 +1,16 @@
+import asyncio
 from dotenv import load_dotenv
-import os
-from llama_index.core import Document, VectorStoreIndex, Settings
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-import pubmed.engine as pub
+from llama_index.core import Document
 
+import pubmed.engine as pub
+from rag.engine import retrieve_from_documents
+import os
 
 load_dotenv()
 EMBED_MODEL_NAME = os.getenv("EMBED_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
 
 #----------------->>>>>add full paper reader<<<<<---------------
-async def pubmed_context(query: str, max_results: int = 20, k: int = 5) -> str:
+async def pubmed_context(query: str, max_results: int = 5, k: int = 5) -> str:
     """
     Search PubMed, fetch candidate articles, index their abstracts temporarily,
     and retrieve the most relevant chunks.
@@ -20,33 +21,37 @@ async def pubmed_context(query: str, max_results: int = 20, k: int = 5) -> str:
                                     max_results=max_results)
     if not articles:
         return "No relevant PubMed articles found."
-    embed_model= HuggingFaceEmbedding(model_name=EMBED_MODEL_NAME)
-    Settings.embed_model= embed_model
     documents= []
 
     for article in articles:
-        text = f"""
-        Title: {article.title}
-        Journal: {article.journal}
-        Year: {article.year}
-        PMID: {article.pmid}
-        Abstract:
-        {article.abstract}
-        """.strip()
+        article_text = article.full_text or article.abstract
+        source = (
+                "pmc_full_text"
+                if article.full_text
+                else "pubmed_abstract"
+            )
 
-        documents.append(Document(text=text,
-                        metadata={"source": "pubmed",
+        documents.append(
+            Document(
+                    text=article_text,
+                    metadata={
+                        "source": source,
                         "pmid": article.pmid,
                         "title": article.title,
                         "journal": article.journal,
-                        "year": article.year}))
+                        "year": article.year,
+                    },
+                )
+            )
 
-    index= VectorStoreIndex.from_documents(documents,
-                                        embed_model=embed_model,)
-    retriever= index.as_retriever(similarity_top_k=k)
-    nodes= retriever.retrieve(query)
 
-    if not nodes: return "No relevant PubMed chunks found."
+    nodes = await asyncio.to_thread(
+    retrieve_from_documents,
+    query=query,
+    documents=documents,
+    k=k,
+)
+    
     results= []
 
     for i, node_with_score in enumerate(nodes, start=1):

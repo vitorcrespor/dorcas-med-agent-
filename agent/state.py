@@ -1,12 +1,12 @@
-from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, SystemMessage, ToolMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from dotenv import load_dotenv
 import prompts as p
 import os
 import agent_tools as to
 import schema 
 from langgraph.graph import StateGraph, START, END
-from langgraph.prebuilt import ToolNode
 import support.functions as f
+from langgraph.errors import GraphRecursionError
 
 load_dotenv()
 CONTEXT_SIZE= int(os.getenv('CONTEXT_SIZE'))
@@ -46,7 +46,7 @@ async def take_action(state: schema.AgentState) -> schema.AgentState:
             except Exception as e:
                 result = f"Tool error: {type(e).__name__}: {e}"     
                        
-            #print(f"Tool result: {result}, {len(tool_calls)} steps.")
+            print(f"Tool result: {result}, {len(tool_calls)} steps.")
             results.append(ToolMessage(tool_call_id= tool_call['id'], 
                                        name= tool_call['name'], 
                                        content= result))
@@ -72,8 +72,7 @@ async def running_agent():
         result= await agent.ainvoke({
             "messages": conversation_history})
 
-        conversation_history = result["messages"]
-        response = conversation_history[-1]
+        conversation_history= result["messages"]
           
         f.log(conversation_history)
     print("Conversation history saved to log.txt")

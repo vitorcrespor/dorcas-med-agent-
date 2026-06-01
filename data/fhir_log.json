@@ -1,0 +1,75 @@
+{
+  "resourceType": "Bundle",
+  "type": "collection",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "id": "mock-patient-001",
+        "identifier": [
+          {
+            "system": "https://example.test/patients",
+            "value": "MOCK-001"
+          }
+        ],
+        "name": [
+          {
+            "use": "official",
+            "family": "Almeida",
+            "given": [
+              "Marina"
+            ]
+          }
+        ],
+        "gender": "female",
+        "birthDate": "1988-04-17"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "id": "mock-patient-002",
+        "identifier": [
+          {
+            "system": "https://example.test/patients",
+            "value": "MOCK-002"
+          }
+        ],
+        "name": [
+          {
+            "use": "official",
+            "family": "Santos",
+            "given": [
+              "Rafael"
+            ]
+          }
+        ],
+        "gender": "male",
+        "birthDate": "1976-11-03"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "id": "mock-patient-003",
+        "identifier": [
+          {
+            "system": "https://example.test/patients",
+            "value": "MOCK-003"
+          }
+        ],
+        "name": [
+          {
+            "use": "official",
+            "family": "Costa",
+            "given": [
+              "Alex"
+            ]
+          }
+        ],
+        "gender": "other",
+        "birthDate": "1994-08-29"
+      }
+    }
+  ]
+}

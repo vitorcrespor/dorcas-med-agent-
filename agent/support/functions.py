@@ -2,6 +2,7 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, Tool
 import schema
 from dotenv import load_dotenv
 import os
+import json 
 
 load_dotenv()
 LOG_PATH= os.getenv('LOG_PATH')
@@ -17,16 +18,18 @@ def log(conversation_history: list[BaseMessage]= []):
             file.write(f"Tool call id: {message.tool_call_id}\n")
             file.write(f"Result: {message.content}\n\n")
         file.write("log end\n")"""
-        
-    with open(LOG_PATH, "w") as file:
-        file.write("conversation log\n")
+    
+    with open(LOG_PATH, "w", encoding="utf-8") as file:
         for message in conversation_history:
             if isinstance(message, HumanMessage):
-                file.write(f"USER: {message.content}\n")
+                record= {"role": "USER", "content": message.content}
+                file.write(json.dumps(record, ensure_ascii=False) + "\n")
             elif isinstance(message, AIMessage):
-                file.write(f"DORCAS: {message.content}\n")
+                record= {"role": "DORCAS", "content": message.content}
+                file.write(json.dumps(record, ensure_ascii=False) + "\n")
         file.write("log end\n")
-
+            
+            
 def message_to_text(message) -> str:
     """Convert a LangChain message into compact text for summarization."""
     content= getattr(message, "content", "") or ""
@@ -103,13 +106,20 @@ def update_summary(state: schema.AgentState) -> schema.AgentState:
 
 
 def log_ingestion(conversation_history= []) -> list[BaseMessage]:
-    with open(LOG_PATH,'r') as file:
+    with open(LOG_PATH, "r", encoding="utf-8") as file:
         for line in file:
-            if line.startswith("DORCAS"):
-                conversation_history.append(AIMessage(content=line.removeprefix("DORCAS:").strip()))
-            if line.startswith("USER"):
-                conversation_history.append(AIMessage(content=line.removeprefix("DORCAS:").strip()))
-    return conversation_history
+            line = line.strip()
+            if not line:
+                continue
+
+            if line.startswith("DORCAS:"):
+                content= line.removeprefix("DORCAS:").strip()
+                conversation_history.append(AIMessage(content=content))
+
+            elif line.startswith("USER:"):
+                content= line.removeprefix("USER:").strip()
+                conversation_history.append(HumanMessage(content=content))
+        return conversation_history
 
 def content_to_text(content) -> str:
     if isinstance(content, str):
