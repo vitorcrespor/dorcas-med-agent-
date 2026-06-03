@@ -128,3 +128,22 @@ def get_retriever(k: int = 5):
     retriever= index.as_retriever(similarity_top_k=5)
 
     return retriever
+
+
+def retrieve_from_documents(query: str, documents: list, k: int):
+    if not documents:  return []
+    
+    embed_model= get_embed_model()
+    llm= Ollama(model="llama3.2:3b")
+    Settings.embed_model= embed_model
+    Settings.llm= llm
+    
+    index= VectorStoreIndex.from_documents(documents=documents, 
+                                           show_progress=True)
+    retriever= index.as_retriever(similarity_top_k=k)
+    nodes= retriever.retrieve(query)
+
+    return nodes
+    
+
+    

@@ -9,7 +9,6 @@ import os
 load_dotenv()
 EMBED_MODEL_NAME = os.getenv("EMBED_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
 
-#----------------->>>>>add full paper reader<<<<<---------------
 async def pubmed_context(query: str, max_results: int = 5, k: int = 5) -> str:
     """
     Search PubMed, fetch candidate articles, index their abstracts temporarily,
