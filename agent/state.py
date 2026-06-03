@@ -61,12 +61,7 @@ async def take_action(state: schema.AgentState) -> schema.AgentState:
     print("Completed tool calls.")
     return {'messages': results}
 
-<<<<<<< HEAD
-def running_agent():
-    
-=======
 async def running_agent():
->>>>>>> bf3398252fa09ac6376b918925b4849073cc771d
     print("\n INITIALIZING DORCAS")
     if LOG_PATH is None:
         raise ValueError("LOG_PATH is not defined in .env")
