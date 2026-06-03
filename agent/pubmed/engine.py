@@ -1,175 +1,215 @@
-# rag/pubmed.py
-from dotenv import load_dotenv
+from dataclasses import dataclass
+from typing import Any
+import asyncio
 import os
+import xml.etree.ElementTree as ET
 
-import chromadb
-from llama_index.core import (
-    Document,
-    VectorStoreIndex,
-    SimpleDirectoryReader,
-    StorageContext,
-    Settings,
-)
-from llama_index.core.node_parser import SentenceSplitter
-from llama_index.core.ingestion import IngestionPipeline
-from llama_index.core.extractors import (
-    TitleExtractor,
-    QuestionsAnsweredExtractor,
-)
-from llama_index.vector_stores.chroma import ChromaVectorStore
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from llama_index.llms.ollama import Ollama
+import httpx
+from dotenv import load_dotenv
 
 
 load_dotenv()
 
-DB_PATH = os.getenv("DB_PATH")
-EMBED_MODEL_NAME = os.getenv(
-    "EMBED_MODEL_NAME",
-    "sentence-transformers/all-MiniLM-L6-v2",
+URL_BASE = os.getenv(
+    "NCBI_URL",
+    "https://eutils.ncbi.nlm.nih.gov/entrez/eutils",
+).rstrip("/")
+
+PMC_BIOC_URL = (
+    "https://www.ncbi.nlm.nih.gov/research/bionlp/"
+    "RESTful/pmcoa.cgi/BioC_json"
 )
 
-_retriever = None
-_embed_model = None
+
+@dataclass
+class PubMedArticle:
+    pmid: str
+    title: str
+    abstract: str
+    journal: str | None = None
+    year: str | None = None
+    full_text: str | None = None
+    metadata: dict[str, Any] | None = None
 
 
-def get_embed_model() -> HuggingFaceEmbedding:
-    """Load the embedding model once and reuse it."""
-    global _embed_model
+def _base_params() -> dict[str, str]:
+    email = os.getenv("NCBI_EMAIL")
+    tool = os.getenv("NCBI_TOOL", "dorcas_agent")
+    api_key = os.getenv("NCBI_API_KEY", "")
 
-    if _embed_model is None:
-        _embed_model = HuggingFaceEmbedding(
-            model_name=EMBED_MODEL_NAME
+    if not email:
+        raise ValueError("NCBI_EMAIL is not defined in .env")
+
+    params = {
+        "tool": tool,
+        "email": email,
+    }
+
+    if api_key:
+        params["api_key"] = api_key
+
+    return params
+
+
+async def search_pubmed_pmids(
+    query: str,
+    max_results: int = 5,
+) -> list[str]:
+    url = f"{URL_BASE}/esearch.fcgi"
+
+    params = {
+        **_base_params(),
+        "db": "pubmed",
+        "term": query,
+        "retmode": "json",
+        "retmax": str(max_results),
+        "sort": "relevance",
+    }
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.get(url, params=params)
+        response.raise_for_status()
+
+    await asyncio.sleep(0.12)
+
+    data = response.json()
+    id_list = data["esearchresult"].get("idlist", [])
+
+    if not id_list and len(query.split()) > 7:
+        compact_query = " ".join(query.split()[:7])
+        return await search_pubmed_pmids(
+        query=compact_query,
+        max_results=max_results)
+
+    return id_list
+
+
+def _safe_text(element) -> str:
+    if element is None:
+        return ""
+
+    return "".join(element.itertext()).strip()
+
+
+def _parse_pubmed_xml(xml_text: str) -> list[PubMedArticle]:
+    root = ET.fromstring(xml_text)
+    articles = []
+
+    for item in root.findall(".//PubmedArticle"):
+        pmid = item.findtext(".//PMID") or ""
+        title = _safe_text(item.find(".//ArticleTitle"))
+
+        abstract_parts = [
+            _safe_text(element)
+            for element in item.findall(".//AbstractText")
+        ]
+
+        abstract = "\n".join(
+            part for part in abstract_parts if part
         )
 
-    return _embed_model
+        if not abstract:
+            abstract = "No abstract available."
+
+        journal = item.findtext(".//Journal/Title")
+
+        year = (
+            item.findtext(".//PubDate/Year")
+            or item.findtext(".//PubDate/MedlineDate")
+        )
+
+        articles.append(
+            PubMedArticle(
+                pmid=pmid,
+                title=title,
+                abstract=abstract,
+                journal=journal,
+                year=year,
+            )
+        )
+
+    return articles
 
 
-def retrieve_from_documents(
-    query: str,
-    documents: list[Document],
-    k: int = 5,
-):
-    """
-    Build a temporary in-memory index and retrieve relevant chunks.
-
-    Useful for short-lived sources such as PubMed/PMC articles.
-    It does not modify the persistent local-document Chroma database.
-    """
-    splitter = SentenceSplitter(
-        separator=" ",
-        chunk_size=700,
-        chunk_overlap=100,
-    )
-
-    chunks = splitter.get_nodes_from_documents(documents)
-
-    if not chunks:
+async def fetch_pubmed_articles(
+    pmids: list[str],
+) -> list[PubMedArticle]:
+    if not pmids:
         return []
 
-    index = VectorStoreIndex(
-        chunks,
-        embed_model=get_embed_model(),
-    )
+    url = f"{URL_BASE}/efetch.fcgi"
 
-    retriever = index.as_retriever(
-        similarity_top_k=k
-    )
+    params = {
+        **_base_params(),
+        "db": "pubmed",
+        "id": ",".join(pmids),
+        "retmode": "xml",
+    }
 
-    return retriever.retrieve(query)
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.get(url, params=params)
+        response.raise_for_status()
+
+    await asyncio.sleep(0.12)
+
+    return _parse_pubmed_xml(response.text)
 
 
-def get_retriever():
-    """
-    Return the persistent retriever for local uploaded documents.
-    Build it once per process, then reuse it.
-    """
-    global _retriever
+async def fetch_pmc_full_text(
+    pmid: str,
+    client: httpx.AsyncClient,
+) -> str | None:
+    url = f"{PMC_BIOC_URL}/{pmid}/unicode"
 
-    if _retriever is not None:
-        return _retriever
+    try:
+        response = await client.get(url)
 
-    if DB_PATH is None:
-        raise ValueError("DB_PATH is not defined in .env")
+        if response.status_code == 404:
+            return None
 
-    llm = Ollama(
-        model="llama3.2:3b"
-    )
+        response.raise_for_status()
+        collections = response.json()
 
-    embed_model = get_embed_model()
+    except (httpx.HTTPError, ValueError):
+        return None
 
-    documents = SimpleDirectoryReader(
-        input_dir=DB_PATH
-    ).load_data()
+    parts = []
 
-    chroma_client = chromadb.PersistentClient(
-        path="./chroma.db"
-    )
+    for collection in collections:
+        for document in collection.get("documents", []):
+            for passage in document.get("passages", []):
+                text = passage.get("text", "").strip()
 
-    vector_store = ChromaVectorStore(
-        chroma_client=chroma_client,
-        collection_name="dorcas_db",
-    )
+                if text:
+                    parts.append(text)
 
-    storage_context = StorageContext.from_defaults(
-        vector_store=vector_store
-    )
+    return "\n\n".join(parts) or None
 
-    Settings.embed_model = embed_model
-    Settings.llm = llm
 
-    for document in documents:
-        document.text_template = (
-            "metadata:\n"
-            "{metadata}\n"
-            "----\n"
-            "content:\n"
-            "{content}"
-        )
-
-        if "page_label" in document.excluded_metadata_keys:
-            document.excluded_embed_metadata_keys.append(
-                "page_label"
+async def add_pmc_full_text(
+    articles: list[PubMedArticle],
+) -> list[PubMedArticle]:
+    async with httpx.AsyncClient(timeout=30) as client:
+        for article in articles:
+            article.full_text = await fetch_pmc_full_text(
+                article.pmid,
+                client,
             )
 
-    text_splitter = SentenceSplitter(
-        separator=" ",
-        chunk_size=1024,
-        chunk_overlap=128,
+            await asyncio.sleep(0.35)
+
+    return articles
+
+
+async def search_pubmed_articles(
+    query: str,
+    max_results: int = 5,
+) -> list[PubMedArticle]:
+    pmids = await search_pubmed_pmids(
+        query=query,
+        max_results=max_results,
     )
 
-    title_extractor = TitleExtractor(
-        llm=llm,
-        nodes=5,
-    )
+    articles = await fetch_pubmed_articles(pmids)
 
-    qa_extractor = QuestionsAnsweredExtractor(
-        llm=llm,
-        questions=3,
-    )
-
-    pipeline = IngestionPipeline(
-        transformations=[
-            text_splitter,
-            title_extractor,
-            qa_extractor,
-        ]
-    )
-
-    nodes = pipeline.run(
-        documents=documents,
-        in_place=True,
-        show_progress=True,
-    )
-
-    index = VectorStoreIndex(
-        nodes,
-        storage_context=storage_context,
-        embed_model=embed_model,
-    )
-
-    _retriever = index.as_retriever(
-        similarity_top_k=5
-    )
-
-    return _retriever
+    return await add_pmc_full_text(articles)

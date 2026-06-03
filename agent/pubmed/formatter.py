@@ -25,11 +25,9 @@ async def pubmed_context(query: str, max_results: int = 5, k: int = 5) -> str:
 
     for article in articles:
         article_text = article.full_text or article.abstract
-        source = (
-                "pmc_full_text"
+        source= ("pmc_full_text"
                 if article.full_text
-                else "pubmed_abstract"
-            )
+                else "pubmed_abstract")
 
         documents.append(
             Document(

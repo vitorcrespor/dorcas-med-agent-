@@ -45,7 +45,7 @@ def load_fhir_log() -> dict:
     }
 
 
-def execute_fhirpath(expression: str) -> str:
+def bundle_fhirpath(expression: str) -> str:
     expression = expression.strip()
 
     if len(expression) > 500:
@@ -57,9 +57,10 @@ def execute_fhirpath(expression: str) -> str:
     if any(part in expression for part in BLOCKED_PARTS):
         raise ValueError("Unsupported FHIRPath feature.")
 
-    bundle = load_fhir_log()
+    return load_fhir_log()
 
-    
+def execute_fhirpath(expression: str) -> str:
+    bundle = bundle_fhirpath(expression)
     results = evaluate(
         deepcopy(bundle),
         expression,

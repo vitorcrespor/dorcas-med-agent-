@@ -1,3 +1,4 @@
+from cocotb import start
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from dotenv import load_dotenv
 import prompts as p
@@ -16,7 +17,13 @@ TOOL_LOG_PATH= os.getenv('TOOL_LOG_PATH')
 
 async def process(state: schema.AgentState) -> schema.AgentState:
     """The agent processes the messages using recent messages."""
-    recent_messages= state["messages"][-CONTEXT_SIZE:]
+    all_messages= list(state["messages"])
+    start= max(0, len(all_messages) - CONTEXT_SIZE)
+
+    while start > 0 and not isinstance(all_messages[start], HumanMessage):
+        start-= 1
+    recent_messages = all_messages[start:]
+    
     system_prompt= SystemMessage(content= p.SYSTEM_PROMPT)
     response= await schema.rag_agent.ainvoke([system_prompt] + recent_messages)
 

@@ -24,9 +24,11 @@ def log(conversation_history: list[BaseMessage]= []):
             if isinstance(message, HumanMessage):
                 record= {"role": "USER", "content": message.content}
                 file.write(json.dumps(record, ensure_ascii=False) + "\n")
-            elif isinstance(message, AIMessage):
-                record= {"role": "DORCAS", "content": message.content}
-                file.write(json.dumps(record, ensure_ascii=False) + "\n")
+            elif isinstance(message, AIMessage) and not message.tool_calls:
+                content = content_to_text(message.content)
+                if content:
+                    record = {"role": "DORCAS", "content": content}
+                    file.write(json.dumps(record, ensure_ascii=False) + "\n")
         file.write("log end\n")
             
             
