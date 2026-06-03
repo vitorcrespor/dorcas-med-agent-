@@ -1,4 +1,0 @@
-conversation log
-Human: what are the biggest hollywood box offices
-AI: {"name": "Retrieve", "parameters": {"query": {"type": "string", "content": "biggest Hollywood box offices"}}}
-log end

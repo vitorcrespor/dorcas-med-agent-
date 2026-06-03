@@ -1,7 +1,8 @@
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
-import schema, state
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage, BaseMessage
+import schema
 from dotenv import load_dotenv
 import os
+import json 
 
 load_dotenv()
 LOG_PATH= os.getenv('LOG_PATH')
@@ -9,23 +10,28 @@ TOOL_LOG_PATH= os.getenv('TOOL_LOG_PATH')
 SUMMARY_KEEP_MESSAGES = 6
 SUMMARY_TRIGGER_MESSAGES = 10
 
-def log(tool_history: list[ToolMessage]= [], conversation_history: list[HumanMessage]= []):
-    with open(TOOL_LOG_PATH, "w") as file:
+def log(conversation_history: list[BaseMessage]= []):
+    """   with open(TOOL_LOG_PATH, "w") as file:
         file.write("tool log\n")
         for message in tool_history:
             file.write(f"Tool: {message.name}\n")
             file.write(f"Tool call id: {message.tool_call_id}\n")
             file.write(f"Result: {message.content}\n\n")
-        file.write("log end\n")
-    with open(LOG_PATH, "w") as file:
-        file.write("conversation log\n")
+        file.write("log end\n")"""
+    
+    with open(LOG_PATH, "w", encoding="utf-8") as file:
         for message in conversation_history:
             if isinstance(message, HumanMessage):
-                file.write(f"USER: {message.content}\n")
-            elif isinstance(message, AIMessage):
-                file.write(f"DORCAS: {message.content}\n")
+                record= {"role": "USER", "content": message.content}
+                file.write(json.dumps(record, ensure_ascii=False) + "\n")
+            elif isinstance(message, AIMessage) and not message.tool_calls:
+                content = content_to_text(message.content)
+                if content:
+                    record = {"role": "DORCAS", "content": content}
+                    file.write(json.dumps(record, ensure_ascii=False) + "\n")
         file.write("log end\n")
-
+            
+            
 def message_to_text(message) -> str:
     """Convert a LangChain message into compact text for summarization."""
     content= getattr(message, "content", "") or ""
@@ -36,7 +42,11 @@ def message_to_text(message) -> str:
         role= "DORCAS"
         if getattr(message, "tool_calls", None):
             tool_names= [tc["name"] for tc in message.tool_calls]
+<<<<<<< HEAD
             tool_queries= [tc["query"] for tc in message.tool_calls]
+=======
+            tool_queries = [tc.get("args", {}) for tc in message.tool_calls]
+>>>>>>> bf3398252fa09ac6376b918925b4849073cc771d
             content= f"Requested tool calls: {tool_names} | {tool_queries}"
 
     elif isinstance(message, ToolMessage):
@@ -98,5 +108,34 @@ def update_summary(state: schema.AgentState) -> schema.AgentState:
                             """)
 
     response= schema.lm.invoke([system_prompt,human_prompt])
-
     return {"summary": response.content.strip()}
+
+
+def log_ingestion(conversation_history= []) -> list[BaseMessage]:
+    with open(LOG_PATH, "r", encoding="utf-8") as file:
+        for line in file:
+            line = line.strip()
+            if not line:
+                continue
+
+            if line.startswith("DORCAS:"):
+                content= line.removeprefix("DORCAS:").strip()
+                conversation_history.append(AIMessage(content=content))
+
+            elif line.startswith("USER:"):
+                content= line.removeprefix("USER:").strip()
+                conversation_history.append(HumanMessage(content=content))
+        return conversation_history
+
+def content_to_text(content) -> str:
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        return "\n".join(
+            item.get("text", "")
+            for item in content
+            if isinstance(item, dict) and item.get("type") == "text"
+        ).strip()
+
+    return str(content)

@@ -1,7 +1,7 @@
-import state 
+import state, asyncio
 
 def main():
-    state.running_agent()
+    asyncio.run(state.running_agent())
     
 if __name__ == "__main__":
      main()

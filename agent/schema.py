@@ -1,18 +1,18 @@
 from typing import TypedDict, Annotated, Sequence
-from langchain_core.messages import BaseMessage, ToolMessage
+from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
-from langchain_ollama import ChatOllama
+from dotenv import load_dotenv
 import agent_tools
-from operator import add
-
+from langchain_google_genai import ChatGoogleGenerativeAI
+load_dotenv()
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
     summary: str
-    action_memory: Annotated[Sequence[ToolMessage], add]
     
-tools_list= [agent_tools.retriever_tool]
+tools_list= [agent_tools.retriever_tool, agent_tools.pubmed_tool, agent_tools.fhir_path_tool, agent_tools.fhir_extract_summary]
 tools_dict= {tool.name: tool for tool in tools_list}
-lm= ChatOllama(model= 'llama3.2:3B', temperature= 0.3)
+lm = ChatGoogleGenerativeAI(model="gemini-2.5-flash-lite",
+                            temperature=0.3,)
 rag_agent= lm.bind_tools(tools_list)
 
