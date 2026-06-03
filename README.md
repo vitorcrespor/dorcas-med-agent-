@@ -1,2 +1,1 @@
-DORCAS — Diagnostic-Oriented Retrieval and Care Agent System
-  
+DORCAS — DORCAS Oncology Reasoning and Clinical Agent System
